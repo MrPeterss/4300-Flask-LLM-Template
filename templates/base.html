@@ -1,23 +1,36 @@
 <!doctype html>
 <title>Kardashian Episode Chat</title>
 <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Kanit&family=Montserrat&family=Open+Sans:wght@500&display=swap" rel="stylesheet">
 <body>
-    <div class="container">
-        <header>
-            <h1>Kardashian Episode Chat</h1>
-            <p class="subtitle">Ask about Keeping Up with the Kardashians. Answers use episode search results.</p>
-        </header>
-
-        <div id="messages"></div>
-
-        <form id="chat-form" class="input-row">
-            <input type="text" id="user-input" placeholder="e.g. Kardashian vacation or Kim Vegas" autocomplete="off">
-            <button type="submit">Send</button>
-        </form>
+    <div class="full-body-container">
+        <div class="top-text">
+            <div class="google-colors">
+                <h1 id="google-4">4</h1>
+                <h1 id="google-3">3</h1>
+                <h1 id="google-0-1">0</h1>
+                <h1 id="google-0-2">0</h1>
+            </div>
+        </div>
+        <div id="messages">
+            <div id="loading-indicator" class="loading-indicator" aria-hidden="true"><span class="loading-dot"></span><span class="loading-dot"></span><span class="loading-dot"></span></div>
+        </div>
+        <div class="chat-bar">
+            <form id="chat-form" class="input-row" onclick="sendFocus()">
+                <img src="{{ url_for('static', filename='images/mag.png') }}" alt="">
+                <input type="text" placeholder="Ask about Keeping Up with the Kardashians" id="user-input" autocomplete="off">
+                <button type="submit" id="send-btn">Send</button>
+            </form>
+        </div>
     </div>
 
     <script>
-        // Append messages to the list and POST to /chat; display the reply in the assistant bubble.
+        function sendFocus() {
+            document.getElementById("user-input").focus();
+        }
+
         const messagesEl = document.getElementById("messages");
         const form = document.getElementById("chat-form");
         const input = document.getElementById("user-input");
@@ -30,12 +43,21 @@
             div.appendChild(p);
             messagesEl.appendChild(div);
             messagesEl.scrollTop = messagesEl.scrollHeight;
+            return div;
         }
 
+        const loadingEl = document.getElementById("loading-indicator");
+        const sendBtn = document.getElementById("send-btn");
+
         function setLoading(loading) {
-            const btn = form.querySelector("button");
-            btn.disabled = loading;
-            btn.textContent = loading ? "..." : "Send";
+            input.disabled = loading;
+            sendBtn.disabled = loading;
+            loadingEl.setAttribute("aria-hidden", !loading);
+            loadingEl.classList.toggle("visible", loading);
+            if (loading) {
+                messagesEl.appendChild(loadingEl);
+                messagesEl.scrollTop = messagesEl.scrollHeight;
+            }
         }
 
         form.addEventListener("submit", function (e) {
@@ -51,21 +73,57 @@
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ message: text })
-            })
-                .then(function (res) { return res.json(); })
-                .then(function (data) {
-                    if (data.error) {
-                        addMessage("Error: " + data.error, false);
-                    } else {
-                        addMessage(data.content, false);
+            }).then(function (res) {
+                if (!res.ok) {
+                    return res.json().then(function (data) {
+                        addMessage("Error: " + (data.error || res.status), false);
+                        setLoading(false);
+                    });
+                }
+                var assistantDiv = null;
+                var p = null;
+                var buffer = "";
+                var reader = res.body.getReader();
+                var decoder = new TextDecoder();
+                function processChunk(result) {
+                    if (result.done) {
+                        setLoading(false);
+                        return;
                     }
-                })
-                .catch(function () {
-                    addMessage("Something went wrong. Check the console.", false);
-                })
-                .finally(function () {
-                    setLoading(false);
-                });
+                    buffer += decoder.decode(result.value, { stream: true });
+                    var lines = buffer.split("\n");
+                    buffer = lines.pop();
+                    for (var i = 0; i < lines.length; i++) {
+                        var line = lines[i];
+                        if (line.startsWith("data: ")) {
+                            try {
+                                var data = JSON.parse(line.slice(6));
+                                if (data.error) {
+                                    if (!assistantDiv) assistantDiv = addMessage("", false);
+                                    p = assistantDiv.querySelector("p");
+                                    p.textContent = "Error: " + data.error;
+                                    setLoading(false);
+                                    return;
+                                }
+                                if (data.content !== undefined) {
+                                    if (!assistantDiv) {
+                                        assistantDiv = addMessage("", false);
+                                        p = assistantDiv.querySelector("p");
+                                        setLoading(false);
+                                    }
+                                    p.textContent += data.content;
+                                    messagesEl.scrollTop = messagesEl.scrollHeight;
+                                }
+                            } catch (err) {}
+                        }
+                    }
+                    return reader.read().then(processChunk);
+                }
+                return reader.read().then(processChunk);
+            }).catch(function () {
+                addMessage("Something went wrong. Check the console.", false);
+                setLoading(false);
+            });
         });
     </script>
 </body>
