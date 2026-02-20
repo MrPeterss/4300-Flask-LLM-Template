@@ -1,9 +1,17 @@
 import json
 import os
+import logging
 from flask import Flask
 from flask_cors import CORS
 from models import db, Episode, Review
 from routes import register_routes
+
+# Configure logging - this helps debug issues in production
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
 
 # Get the directory of the current script
 current_directory = os.path.dirname(os.path.abspath(__file__))

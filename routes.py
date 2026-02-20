@@ -7,9 +7,13 @@ Set API_KEY in your environment before using chat.
 import json
 import os
 import re
+import logging
 from flask import render_template, request, jsonify, Response, stream_with_context
 from models import db, Episode, Review
 from infosci_spark_client import LLMClient
+
+# Create a logger for this module
+logger = logging.getLogger(__name__)
 
 
 def json_search(query):
@@ -52,6 +56,7 @@ def llm_search_decision(client, user_message):
     response = client.chat(messages)
     content = (response.get("content") or "").strip()
     content_upper = content.upper()
+    logger.info(f"LLM search decision: {content_upper}")
     if re.search(r"\bNO\b", content_upper) and not re.search(r"\bYES\b", content_upper):
         return False, None
     yes_match = re.search(r"\bYES\s+(\w+)", content_upper, re.IGNORECASE)
@@ -69,7 +74,6 @@ def register_routes(app):
     def home():
         return render_template('base.html')
 
-    # Optional: direct search endpoint (e.g. for debugging).
     @app.route("/episodes")
     def episodes_search():
         text = request.args.get("title", "")
@@ -85,6 +89,9 @@ def register_routes(app):
         api_key = os.getenv("API_KEY")
         if not api_key:
             return jsonify({"error": "API_KEY environment variable not set"}), 500
+
+        # Log incoming chat requests (helpful for debugging in production)
+        logger.info(f"Chat request received: '{user_message[:50]}...'")
 
         client = LLMClient(api_key=api_key)
 
@@ -129,8 +136,15 @@ def register_routes(app):
                 for chunk in client.chat(messages, stream=True):
                     if chunk.get("content"):
                         yield f"data: {json.dumps({'content': chunk['content']})}\n\n"
+            except (GeneratorExit, StopIteration):
+                # Client disconnected during streaming
+                # (user navigated away or closed the browser tab)
+                logger.info("Client disconnected during streaming")
+                pass
             except Exception as e:
-                yield f"data: {json.dumps({'error': str(e)})}\n\n"
+                # Unexpected errors
+                logger.error(f"Streaming error: {e}")
+                yield f"data: {json.dumps({'error': 'An error occurred during streaming'})}\n\n"
 
         return Response(
             stream_with_context(generate()),
